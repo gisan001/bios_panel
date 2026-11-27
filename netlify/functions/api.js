@@ -13,8 +13,8 @@ const REPO_NAME = "bios_panel";
 const FILE_PATH = "users.json";
 const EXE_DOWNLOAD_URL = "https://raw.githubusercontent.com/gisan001/bios_panel/main/Aim.exe";
 
-// I considered adding a local database module, but keeping state inside GitHub 
-// via serverless REST endpoints ensures zero server maintenance overhead.
+// I considered handling template strings via string concatenation to avoid escaping errors entirely, 
+// but clean template blocks are easier to maintain when the proper syntax is restored.
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 app.use(cookieParser());
@@ -144,15 +144,15 @@ app.get('/dashboard', async (req, res) => {
         const days = Math.floor(remainingMs / (1000 * 60 * 60 * 24));
         const hours = Math.floor((remainingMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
         
-        let timeStr = active ? (days > 0 ? \`\${days}d \${hours}h left\` : \`\${hours}h left\`) : 'Expired';
+        let timeStr = active ? (days > 0 ? `${days}d ${hours}h left` : `${hours}h left`) : 'Expired';
         if (u.expiresAt > now + 100 * 365 * 24 * 3600 * 1000) timeStr = 'Lifetime';
 
-        return \`<tr>
-            <td><strong>\${u.name}</strong></td>
-            <td><code>\${u.hwid}</code></td>
-            <td><span class="badge \${active ? 'active' : 'expired'}">\${timeStr}</span></td>
-            <td><a href="/delete?hwid=\${encodeURIComponent(u.hwid)}" class="btn-danger">Delete</a></td>
-        </tr>\`;
+        return `<tr>
+            <td><strong>${u.name}</strong></td>
+            <td><code>${u.hwid}</code></td>
+            <td><span class="badge ${active ? 'active' : 'expired'}">${timeStr}</span></td>
+            <td><a href="/delete?hwid=${encodeURIComponent(u.hwid)}" class="btn-danger">Delete</a></td>
+        </tr>`;
     }).join('');
 
     res.send(`<!DOCTYPE html><html><head><title>HWID Control Panel</title>${professionalCSS}</head><body>
@@ -184,7 +184,7 @@ app.get('/dashboard', async (req, res) => {
                         </tr>
                     </thead>
                     <tbody>
-                        \${rows.length ? rows : '<tr><td colspan="4" style="text-align:center; color: var(--text-muted); padding: 24px;">No hardware records found.</td></tr>'}
+                        ${rows.length ? rows : '<tr><td colspan="4" style="text-align:center; color: var(--text-muted); padding: 24px;">No hardware records found.</td></tr>'}
                     </tbody>
                 </table>
             </div>
