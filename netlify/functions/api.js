@@ -4,35 +4,64 @@ const cookieParser = require('cookie-parser');
 
 const app = express();
 
-// Configuration (Nijer info bosao)
-const ADMIN_USER = "admin";
-const ADMIN_PASS = "123456";
-const SESSION_SECRET = "netlify_secret_777";
-const JSONBIN_ID = "YOUR_JSONBIN_BIN_ID";
-const JSONBIN_KEY = "YOUR_JSONBIN_MASTER_KEY";
-const EXE_DOWNLOAD_URL = "YOUR_GITHUB_RAW_URL_FOR_AIM_EXE";
+const ADMIN_USER = "gisan";
+const ADMIN_PASS = "bios";
+const SESSION_SECRET = "github_netlify_secret_888";
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+const REPO_OWNER = "gisan001";
+const REPO_NAME = "bios_panel";
+const FILE_PATH = "users.json";
+const EXE_DOWNLOAD_URL = "https://raw.githubusercontent.com/gisan001/bios_panel/main/Aim.exe";
 
+// I considered maintaining a separate remote database service, but committing directly 
+// to the repository keeps the state tied to the code without external dependencies.
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 app.use(cookieParser());
 
-async function getUsers() {
-    const res = await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_ID}/latest`, {
-        headers: { 'X-Master-Key': JSONBIN_KEY }
-    });
-    const data = await res.json();
-    return Array.isArray(data.record) ? data.record : [];
+async function getGitHubFile() {
+    try {
+        const res = await fetch(`https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${FILE_PATH}`, {
+            headers: {
+                'Authorization': `token ${GITHUB_TOKEN}`,
+                'User-Agent': 'Netlify-Function',
+                'Accept': 'application/vnd.github.v3+json'
+            }
+        });
+        if (!res.ok) {
+            return { content: [], sha: null };
+        }
+        const data = await res.json();
+        const jsonString = Buffer.from(data.content, 'base64').toString('utf8');
+        return { content: JSON.parse(jsonString), sha: data.sha };
+    } catch (e) {
+        return { content: [], sha: null };
+    }
 }
 
-async function saveUsers(users) {
-    await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_ID}`, {
+async function saveGitHubFile(users, sha) {
+    const jsonString = JSON.stringify(users, null, 2);
+    const base64Content = Buffer.from(jsonString).toString('base64');
+    
+    const body = {
+        message: "Update users.json via dashboard",
+        content: base64Content
+    };
+    if (sha) {
+        body.sha = sha;
+    }
+
+    const res = await fetch(`https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${FILE_PATH}`, {
         method: 'PUT',
         headers: {
+            'Authorization': `token ${GITHUB_TOKEN}`,
+            'User-Agent': 'Netlify-Function',
             'Content-Type': 'application/json',
-            'X-Master-Key': JSONBIN_KEY
+            'Accept': 'application/vnd.github.v3+json'
         },
-        body: JSON.stringify(users)
+        body: JSON.stringify(body)
     });
+    return res.ok;
 }
 
 app.get('/', (req, res) => {
@@ -57,7 +86,7 @@ app.post('/login', (req, res) => {
 
 app.get('/dashboard', async (req, res) => {
     if (req.cookies.auth !== SESSION_SECRET) return res.redirect('/');
-    const users = await getUsers();
+    const { content: users } = await getGitHubFile();
     const rows = users.map(u => {
         const mins = Math.max(0, Math.round((u.expiresAt - Date.now()) / 60000));
         return `<tr>
@@ -86,27 +115,28 @@ app.get('/dashboard', async (req, res) => {
 app.post('/add', async (req, res) => {
     if (req.cookies.auth !== SESSION_SECRET) return res.redirect('/');
     const { name, hwid, hours } = req.body;
-    let users = (await getUsers()).filter(u => u.hwid !== hwid.trim());
+    const { content: currentUsers, sha } = await getGitHubFile();
+    let users = currentUsers.filter(u => u.hwid !== hwid.trim());
     users.push({
         name: name.trim(),
         hwid: hwid.trim(),
         expiresAt: Date.now() + (parseFloat(hours) * 3600000)
     });
-    await saveUsers(users);
+    await saveGitHubFile(users, sha);
     res.redirect('/dashboard');
 });
 
 app.get('/delete', async (req, res) => {
     if (req.cookies.auth !== SESSION_SECRET) return res.redirect('/');
-    const users = (await getUsers()).filter(u => u.hwid !== req.query.hwid);
-    await saveUsers(users);
+    const { content: currentUsers, sha } = await getGitHubFile();
+    let users = currentUsers.filter(u => u.hwid !== req.query.hwid);
+    await saveGitHubFile(users, sha);
     res.redirect('/dashboard');
 });
 
-// HWID Verify kore valid hole EXE URL-e redirect korbe
 app.get('/exe', async (req, res) => {
     const hwid = (req.query.hwid || '').trim();
-    const users = await getUsers();
+    const { content: users } = await getGitHubFile();
     const found = users.find(u => u.hwid === hwid);
 
     if (!found || Date.now() > found.expiresAt) {
